@@ -37,7 +37,7 @@ st.caption("이름, 등록번호, 이메일까지 입력한 다음 엔터를 누
 user = st.text_input("👤 이름 입력")
 userid = st.text_input("👤 등록번호 입력")
 useremail = st.text_input("👤 이메일 입력")
-video_id = "training_001"
+video_id = "training_002"
 
 st.caption("시청시작 버튼을 누르고 Play 재생한 다음 시청종료 버튼을 누르세요.")
 
