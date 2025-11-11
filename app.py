@@ -140,7 +140,12 @@ else:
     with col1:
         if st.button("시청 시작", type="primary", key=f"start_{video_id}"):
             st.session_state.start_time = time.time()
-            st.success("시청 시작 시간을 기록했습니다.")
+            # 시작 시간을 서울 시간대로 변환하여 문자열로 만듭니다.
+            seoul_tz = ZoneInfo("Asia/Seoul")
+            start_dt_str = datetime.fromtimestamp(st.session_state.start_time, tz=seoul_tz).strftime("%Y-%m-%d %H:%M:%S")
+            
+            # 성공 메시지에 시간 문자열을 추가합니다.
+            st.success(f"시청 시작 시간을 기록했습니다. (시작: {start_dt_str})")
 
     with col2:
         if st.button("시청 종료", type="secondary", key=f"stop_{video_id}"):
