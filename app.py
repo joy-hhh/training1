@@ -59,7 +59,7 @@ sheet = get_sheet()
 # ---------------------
 st.set_page_config(page_title="Video Training Tracker", page_icon="🎥", layout="wide")
 
-# 세션 유지를 위한 JavaScript 코드 (화면에 보이지 않음)
+# 세션 유지 스크립트 (1분 간격)
 SESSION_KEEP_ALIVE_SCRIPT = """
 <script>
 const streamlitDoc = window.parent.document;
@@ -74,7 +74,7 @@ const observer = new MutationObserver(function (mutations, obs) {
                 key: "keep-alive",
                 value: new Date().getTime()
             }, "*");
-        }, 300000); // 5분마다 신호 전송
+        }, 60000); 
         obs.disconnect();
     }
 });
@@ -86,28 +86,50 @@ observer.observe(streamlitDoc.body, { childList: true, subtree: true });
 # 사이드바 UI
 # ---------------------
 st.sidebar.title("🎥 교육 영상 시청")
-st.sidebar.caption("이름, 등록번호, 이메일을 입력하세요.")
+st.sidebar.caption("교육생 정보를 입력하세요.")
 
-# key를 사용해 st.session_state에 자동으로 저장
 st.sidebar.text_input("👤 이름", key="user")
 st.sidebar.text_input("👤 등록번호", key="userid")
 st.sidebar.text_input("👤 이메일", key="useremail")
 
 st.sidebar.divider()
 
-# VIDEO_DATA의 '제목'들을 리스트로 만들어 라디오 버튼 생성
 video_titles = list(VIDEO_DATA.keys())
 st.sidebar.radio(
     "시청할 교육 영상을 선택하세요:",
     video_titles,
-    key="selected_video_title" # 선택된 영상 제목을 session_state에 저장
+    key="selected_video_title"
 )
 
 # ---------------------
-# 메인 화면 UI
+# 메인 로직 시작
 # ---------------------
 
-# 사이드바에서 모든 정보가 입력되었는지 확인
+# 1. 현재 선택된 영상 정보 가져오기
+selected_title = st.session_state.selected_video_title
+video_info = VIDEO_DATA[selected_title]
+current_video_id = video_info["video_id"] # 현재 화면에 떠있는 영상 ID
+embed_code = video_info["embed_code"]
+
+# 2. 🚨 핵심 기능: URL 복구 로직 (영상 ID까지 비교!)
+# URL에 저장된 정보가 있는지 확인
+url_saved_start = st.query_params.get("saved_start")
+url_active_video = st.query_params.get("active_video") # URL에 저장된 영상 ID
+
+# 현재 선택된 영상과 URL에 저장된 영상 ID가 *일치할 때만* 복구
+if url_saved_start and url_active_video == current_video_id:
+    try:
+        st.session_state.start_time = float(url_saved_start)
+    except:
+        st.session_state.start_time = None
+else:
+    # 영상이 다르거나 기록이 없으면, 현재 영상에 대한 시작 시간은 없는 것임
+    st.session_state.start_time = None
+
+
+# ---------------------
+# 메인 화면 표시
+# ---------------------
 user_info_complete = (
     st.session_state.get("user") and
     st.session_state.get("userid") and
@@ -115,58 +137,81 @@ user_info_complete = (
 )
 
 if not user_info_complete:
-    st.info("먼저 사이드바에서 이름, 등록번호, 이메일을 모두 입력하세요.")
+    st.info("👈 먼저 사이드바에서 이름, 등록번호, 이메일을 모두 입력해주세요.")
 else:
-    # 1. 선택된 영상 정보 가져오기
-    selected_title = st.session_state.selected_video_title
-    video_info = VIDEO_DATA[selected_title]
-    video_id = video_info["video_id"]
-    embed_code = video_info["embed_code"]
+    st.title(f"📺 {selected_title}")
     
-    # 2. 메인 화면에 영상 표시
-    st.title(f"'{selected_title}' 시청 중...")
+    # 영상 표시
     components.html(embed_code, height=510)
-    
-    # 3. 세션 유지 스크립트 실행
+    # 세션 유지 실행
     components.html(SESSION_KEEP_ALIVE_SCRIPT, height=0)
 
-    st.write("▶ 아래 버튼으로 시청 시간을 기록하세요.")
+    # ---------------------
+    # 상태 메시지
+    # ---------------------
+    if st.session_state.start_time:
+        seoul_tz = ZoneInfo("Asia/Seoul")
+        start_dt_str = datetime.fromtimestamp(st.session_state.start_time, tz=seoul_tz).strftime("%Y-%m-%d %H:%M:%S")
+        # 경고창 대신 성공 메시지로 안심시키기
+        st.success(f"✅ [시청 중] 시작 시간: {start_dt_str}")
+        st.caption("시청 시작 시간을 유지하고 있습니다. 종료 시 반드시 아래 '시청 종료' 버튼을 눌러주세요.")
+    else:
+        st.write("🔽 아래 '시청 시작' 버튼을 눌러 교육을 시작하세요.")
 
-    # 4. 시청 시작/종료 버튼 로직
-    if "start_time" not in st.session_state:
-        st.session_state.start_time = None
-
+    st.divider()
     col1, col2 = st.columns(2)
+    
+    # ---------------------
+    # 버튼 로직
+    # ---------------------
     with col1:
-        if st.button("시청 시작", type="primary", key=f"start_{video_id}"):
-            st.session_state.start_time = time.time()
-            # 시작 시간을 서울 시간대로 변환하여 문자열로 만듭니다.
-            seoul_tz = ZoneInfo("Asia/Seoul")
-            start_dt_str = datetime.fromtimestamp(st.session_state.start_time, tz=seoul_tz).strftime("%Y-%m-%d %H:%M:%S")
+        # 시작 버튼
+        if st.button("▶️ 시청 시작", type="primary", key=f"start_{current_video_id}", use_container_width=True):
+            current_time = time.time()
+            st.session_state.start_time = current_time
             
-            # 성공 메시지에 시간 문자열을 추가합니다.
-            st.success(f"시청 시작 시간을 기록했습니다. (시작: {start_dt_str})")
+            # 🚨 중요: 시작 시간 AND 현재 영상 ID를 함께 URL에 저장
+            st.query_params["saved_start"] = str(current_time)
+            st.query_params["active_video"] = current_video_id # <-- 영상 ID 저장
+            
+            st.rerun()
 
     with col2:
-        if st.button("시청 종료", type="secondary", key=f"stop_{video_id}"):
+        # 종료 버튼
+        if st.button("⏹️ 시청 종료 (기록 저장)", type="secondary", key=f"stop_{current_video_id}", use_container_width=True):
             if st.session_state.start_time:
                 end_time = time.time()
                 elapsed = end_time - st.session_state.start_time
+                
                 seoul_tz = ZoneInfo("Asia/Seoul")
                 start_dt = datetime.fromtimestamp(st.session_state.start_time, tz=seoul_tz).strftime("%Y-%m-%d %H:%M:%S")
                 end_dt = datetime.fromtimestamp(end_time, tz=seoul_tz).strftime("%Y-%m-%d %H:%M:%S")
 
-                # Google Sheets에 현재 사용자 정보와 *선택된 video_id*를 기록
                 user = st.session_state.user
                 userid = st.session_state.userid
                 useremail = st.session_state.useremail
                 
-                sheet.append_row([user, userid, useremail, video_id, elapsed, start_dt, end_dt])
-                st.success(f"✅ 총 {elapsed/60:.1f}분 시청 기록이 Google Sheets에 저장되었습니다.")
-                st.session_state.start_time = None
-            else:
-                st.warning("시청 시작 버튼을 먼저 눌러주세요.")
+                # 구글 시트 저장 시도
+                if sheet:
+                    try:
+                        sheet.append_row([user, userid, useremail, current_video_id, elapsed, start_dt, end_dt])
+                        st.balloons() # 축하 효과
+                        st.success(f"💾 저장 완료! 총 {elapsed/60:.1f}분 시청했습니다.")
+                    except Exception as e:
+                        st.error(f"저장 중 오류 발생: {e}")
+                else:
+                    st.error("구글 시트 연결 오류. 관리자에게 문의하세요.")
 
-    st.info("🕐 시청 시간이 50분 이상 되어야 연수 시간 1시간이 인정됩니다.")
+                # 🚨 중요: 기록 후 URL 파라미터 싹 지우기 (초기화)
+                st.session_state.start_time = None
+                st.query_params.clear() # URL 깨끗하게 비움
+                
+                time.sleep(3) # 메시지 읽을 시간 줌
+                st.rerun()
+                
+            else:
+                st.warning("⚠️ 시청 기록이 없습니다. '시청 시작'을 먼저 눌러주세요.")
+
+    st.info("🕐 시청 시간이 50분 이상 되어야 연수 시간 1시간이 인정됩니다. (여러번 시청하는 경우 각각의 시간 누적 합산 기준 50분)")
     st.divider()
     st.info("💾 시청 로그는 시청종료 버튼 누를 때 Google Sheets에 자동 저장됩니다.")
